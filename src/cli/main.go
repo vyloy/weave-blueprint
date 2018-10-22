@@ -7,12 +7,12 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"types"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ed25519"
 	"github.com/loomnetwork/go-loom/cli"
+	"github.com/loomnetwork/weave-blueprint/src/types"
 )
 
 type MessageData struct {
