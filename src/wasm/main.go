@@ -1,60 +1,69 @@
 package main
 
 import (
-	"bytes"
-	"github.com/loomnetwork/go-loom"
-	"github.com/loomnetwork/go-loom/plugin"
-	"github.com/loomnetwork/go-loom/plugin/contractpb"
+	"bufio"
+	"encoding/binary"
+	"fmt"
+	"github.com/gogo/protobuf/proto"
 	"github.com/loomnetwork/weave-blueprint/src/blueprint"
-	"github.com/loomnetwork/weave-blueprint/src/types"
-	"log"
+	"os"
 )
 
 func main() {
-	addr1 := loom.MustParseAddress("chain:0xb16a379ec18d4093666f8f38b11a3071c920207d")
-	user := "test"
-	encoding := plugin.EncodingType_JSON
-
-	marshaler, err := contractpb.MarshalerFactory(encoding)
+	var err error
+	defer func() {
+		if err != nil {
+			fmt.Fprintf(os.Stdout, "exit err %v", err)
+			os.Exit(1)
+		}
+	}()
+	reader := bufio.NewReader(os.Stdin)
+	var totalSize, methodStrLen int16
+	err = binary.Read(reader, binary.BigEndian, &totalSize)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
 
-	var argsBuffer bytes.Buffer
-	err = marshaler.Marshal(&argsBuffer, &types.BluePrintCreateAccountTx{
-		Version: 1,
-		Owner:   user,
-		Data:    []byte(user),
-	})
+	err = binary.Read(reader, binary.BigEndian, &methodStrLen)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
 
-	msg := &plugin.ContractMethodCall{
-		Method: "CreateAccount",
-		Args:   argsBuffer.Bytes(),
-	}
-
-	var msgBuffer bytes.Buffer
-	err = marshaler.Marshal(&msgBuffer, msg)
+	sb := make([]byte, methodStrLen)
+	_, err = reader.Read(sb)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
 
-	req := &plugin.Request{
-		ContentType: encoding,
-		Accept:      encoding,
-		Body:        msgBuffer.Bytes(),
-	}
-	resp, err := blueprint.Contract.Call(plugin.CreateFakeContext(addr1, addr1), req)
+	var argc int16
+	err = binary.Read(reader, binary.BigEndian, &argc)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
-	log.Printf("response: %#v", resp)
+	for  i := int16(0); i < argc; i++ {
+		var al int16
+		err = binary.Read(reader, binary.BigEndian, &al)
+		if err != nil {
+			return
+		}
+		ab := make([]byte, al)
+		_, err = reader.Read(ab)
+		if err != nil {
+			return
+		}
 
-	resp, err = blueprint.Contract.Call(plugin.CreateFakeContext(addr1, addr1), req)
-	if err != nil {
-		log.Fatal(err)
 	}
-	log.Printf("response: %#v", resp)
+
+	meta, err := blueprint.Contract.Meta()
+	if err != nil {
+		return
+	}
+	data, err := proto.Marshal(&meta)
+	if err != nil {
+		return
+	}
+	_, err = os.Stdout.Write(data)
+	if err != nil {
+		return
+	}
 }
