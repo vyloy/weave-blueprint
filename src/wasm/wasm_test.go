@@ -43,6 +43,8 @@ func (eh *fakeEventHandler) EthSubscriptionSet() *subs.EthSubscriptionSet {
 func TestWASMPluginVMContract(t *testing.T) {
 	log.Setup("debug", "file://-")
 	loader := NewWASMLoader("testdata")
+	defer loader.UnloadContracts()
+
 	block := abci.Header{
 		ChainID: "chain",
 		Height:  int64(34),
@@ -85,6 +87,55 @@ func TestWASMPluginVMContract(t *testing.T) {
 	}
 	require.NoError(t, callGoContractMethod(vm, vmAddr1, goContractAddr1, "SaveState", msg))
 	require.EqualError(t, callGoContractMethod(vm, vmAddr1, goContractAddr1, "SaveStateNotExists", msg), "method not found")
+}
+
+func TestNativePluginVMContract(t *testing.T) {
+	log.Setup("debug", "file://-")
+	loader := NewExternalLoader("testdata")
+	defer loader.UnloadContracts()
+
+	block := abci.Header{
+		ChainID: "chain",
+		Height:  int64(34),
+		Time:    time.Unix(123456789, 0),
+	}
+	state := loomchain.NewStoreState(context.Background(), store.NewMemStore(), block, nil)
+	createRegistry, err := registry.NewRegistryFactory(registry.LatestRegistryVersion)
+	require.NoError(t, err)
+
+	vm := NewPluginVM(loader, state, createRegistry(state), &fakeEventHandler{}, log.Default, nil, nil, nil)
+
+	// Deploy contracts
+	owner := loom.RootAddress("chain")
+	goContractAddr1, err := deployGoContract(vm, "BluePrint:0.0.1", 0, owner)
+	require.NoError(t, err)
+
+	vmAddr1 := loom.MustParseAddress("chain:0xb16a379ec18d4093666f8f38b11a3071c920207d")
+	s := "abc"
+	payload := &types.BluePrintCreateAccountTx{
+		Version: 1,
+		Owner:   s,
+		Data:    []byte(s),
+	}
+	require.NoError(t, callGoContractMethod(vm, vmAddr1, goContractAddr1, "CreateAccount", payload))
+	require.EqualError(t, callGoContractMethod(vm, vmAddr1, goContractAddr1, "CreateAccount", payload), "rpc error: code = Unknown desc = Owner already exists")
+
+	// test SaveState
+	msgData := struct {
+		Value int
+	}{
+		Value:10,
+	}
+	data, err := json.Marshal(msgData)
+	require.NoError(t, err)
+
+	msg := &types.BluePrintStateTx{
+		Version: 1,
+		Owner:   s,
+		Data:    data,
+	}
+	require.NoError(t, callGoContractMethod(vm, vmAddr1, goContractAddr1, "SaveState", msg))
+	require.EqualError(t, callGoContractMethod(vm, vmAddr1, goContractAddr1, "SaveStateNotExists", msg), "rpc error: code = Unknown desc = method not found")
 }
 
 func deployGoContract(vm *PluginVM, contractID string, contractNum uint64, owner loom.Address) (loom.Address, error) {
